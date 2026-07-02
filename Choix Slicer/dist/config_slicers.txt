@@ -1,0 +1,3 @@
+Anycubic Slicer Next||C:\Program Files\AnycubicSlicerNext\AnycubicSlicerNext.exe||D:\Choix Slicer\logo_anycubic.png
+Creality Print||C:\Program Files\Creality\Creality Print 7.0\CrealityPrint.exe||D:\Choix Slicer\logo_creality.png
+Orca Slicer||C:\Program Files\OrcaSlicer\orca-slicer.exe||D:\Choix Slicer\logo_orca.png
