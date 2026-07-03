@@ -5,7 +5,7 @@ a = Analysis(
     ['choix_slicer.py'],
     pathex=[],
     binaries=[],
-    datas=[('logo_anycubic.png', '.'), ('logo_creality.png', '.'), ('Trancheur Unique logo.png', '.')],
+    datas=[('Trancheur Unique logo.png', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['Trancheur unique.ico'],
 )

@@ -4,7 +4,6 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import ctypes
-from ctypes import wintypes
 
 class Tooltip:
     def __init__(self, widget, text):
@@ -13,7 +12,7 @@ class Tooltip:
         self.tip_window = None
         self.widget.bind("<Enter>", self.show_tip)
         self.widget.bind("<Leave>", self.hide_tip)
-        self.widget.bind("<Motion>", self.move_tip) # <-- Ajout du suivi de mouvement
+        self.widget.bind("<Motion>", self.move_tip)
 
     def show_tip(self, event=None):
         if self.tip_window or not self.text:
@@ -26,13 +25,10 @@ class Tooltip:
                          font=("Helvetica", 9, "normal"))
         label.pack(ipadx=4, ipady=1)
         
-        self.move_tip(event) # <-- Positionne l'info-bulle immédiatement dès l'apparition
+        self.move_tip(event)
 
     def move_tip(self, event):
-        """ Met à jour la position de la fenêtre pour suivre le curseur """
         if self.tip_window and event:
-            # Récupère la position absolue du curseur à l'écran
-            # Ajoute un léger décalage (+15, +15) pour ne pas cacher le curseur
             x = event.x_root + 15
             y = event.y_root + 15
             self.tip_window.wm_geometry(f"+{x}+{y}")
@@ -52,7 +48,6 @@ else:
 CONFIG_FILE = os.path.join(DOSSIER_APP, "config_slicers.txt")
 
 def resource_path(relative_path):
-    """ Gestion sécurisée des chemins PyInstaller / Dev """
     try:
         base_path = sys._MEIPASS
     except Exception:
@@ -60,33 +55,32 @@ def resource_path(relative_path):
     chemin_complet = os.path.join(base_path, relative_path)
     if os.path.exists(chemin_complet):
         return chemin_complet
+    chemin_local = os.path.join(DOSSIER_APP, relative_path)
+    if os.path.exists(chemin_local):
+        return chemin_local
     return None
 
-# --- SÉCURITÉ : VÉRIFICATION DU FICHIER EN ENTRÉE ---
-if len(sys.argv) < 2:
-    racine_erreur = tk.Tk()
-    racine_erreur.withdraw()
-    messagebox.showwarning(
-        "Fichier manquant", 
-        "Aucun fichier à ouvrir.\n\nGlissez un fichier 3D (.stl, .3mf...) sur l'application ou associez-le pour l'ouvrir."
-    )
-    sys.exit()
-    
-fichier_3d = sys.argv[1]
-
-# --- VARIABLE GLOBALE POUR LA CONFIRMATION D'OUVERTURE ---
-demander_confirmation = True
-
-# --- FONCTION DE RÉCUPÉRATION DE L'ESPACE DE TRAVAIL UTILE ---
-def obtenir_espace_travail():
+# --- FORCE L'ICÔNE SUR L'EXTENSION .3MF DANS WINDOWS ---
+def associer_icone_extension_3mf(chemin_ico):
+    if not chemin_ico or not os.path.exists(chemin_ico):
+        return
     try:
-        rect = wintypes.RECT()
-        ctypes.windll.user32.SystemParametersInfoW(48, 0, ctypes.byref(rect), 0)
-        largeur = rect.right - rect.left
-        hauteur = rect.bottom - rect.top
-        return largeur, hauteur
-    except:
-        return fenetre.winfo_screenwidth(), fenetre.winfo_screenheight() - 40
+        import winreg
+        # Crée/Modifie l'association dans le registre utilisateur actuel (Pas besoin d'être Admin !)
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\.3mf") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, "TrancheurUnique.3mf")
+        
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\TrancheurUnique.3mf\DefaultIcon") as key:
+            winreg.SetValue(key, "", winreg.REG_SZ, f'"{os.path.abspath(chemin_ico)}",0')
+            
+        # Force la mise à jour immédiate de l'affichage Windows
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+    except Exception as e:
+        print("Erreur registre :", e)
+
+# --- GESTION DU FICHIER EN ENTRÉE ---
+fichier_3d = sys.argv[1] if len(sys.argv) > 1 else None
+demander_confirmation = True
 
 # --- CHARGEMENT ET SAUVEGARDE DES SLICERS ---
 def charger_slicers_personnalises():
@@ -156,6 +150,7 @@ def supprimer_slicer_personnalise(nom_a_supprimer):
             f.writelines(lignes_a_garder)
             
         rafraichir_boutons()
+        redimensionner_et_centrer()
     except Exception as e:
         messagebox.showerror("Erreur", f"Impossible de modifier le fichier de configuration :\n{e}")
 
@@ -164,6 +159,10 @@ def lancer_slicer(chemin_slicer, nom_slicer):
     
     if not os.path.exists(chemin_slicer):
         messagebox.showerror("Erreur", f"Le trancheur est introuvable à l'adresse :\n{chemin_slicer}")
+        return
+
+    if not fichier_3d:
+        messagebox.showwarning("Aucun fichier", "Veuillez d'abord sélectionner un fichier 3D avec le bouton dossier jaune avant de lancer un trancheur.")
         return
 
     if demander_confirmation:
@@ -240,37 +239,32 @@ def lancer_slicer(chemin_slicer, nom_slicer):
     subprocess.Popen([chemin_slicer, fichier_3d])
     fenetre.destroy()
 
-# --- INTERFACE GRAPHIQUE PRINCIPALE ---
-fenetre = tk.Tk()
-fenetre.title("Trancheur Unique")
+# --- INITIALISATION DE L'INTERFACE PRINCIPALE ---
 
 try:
-    chemin_logo_brut = resource_path("Trancheur Unique logo.png")
-    if chemin_logo_brut:
-        img_icone_app = tk.PhotoImage(file=chemin_logo_brut)
-        fenetre.iconphoto(True, img_icone_app)
+    # Force Windows à grouper l'icône correctement sur la barre des tâches
+    mon_app_id = 'monentreprise.trancheurunique.version.1' 
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(mon_app_id)
 except:
     pass
+
+# La racine DEVIENT la fenêtre visible directement (Adieu la plume)
+fenetre = tk.Tk()
+fenetre.title("Trancheur Unique")
+fenetre.overrideredirect(True)
 
 h_maximisee = False
 w_maximisee = False
 
-fenetre.overrideredirect(True)
+def reduire_fenetre():
+    fenetre.overrideredirect(False)
+    fenetre.iconify()
 
-def forcer_barre_taches():
-    try:
-        fenetre.update_idletasks()
-        window_id = fenetre.winfo_id()
-        if window_id:
-            hwnd = ctypes.windll.user32.GetParent(window_id)
-            if hwnd:
-                style_actuel = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
-                style_modifie = style_actuel | 0x00040000
-                ctypes.windll.user32.SetWindowLongW(hwnd, -20, style_modifie)
-                fenetre.wm_withdraw()
-                fenetre.wm_deiconify()
-    except:
-        pass
+def restaurer_fenetre(event):
+    if fenetre.state() == "normal" and not fenetre.overrideredirect():
+        fenetre.overrideredirect(True)
+
+fenetre.bind("<Map>", restaurer_fenetre)
 
 style = ttk.Style()
 style.theme_use('vista')
@@ -347,11 +341,11 @@ def executer_redimensionnement_bord(event):
     if hasattr(fenetre, '_bord_actif') and fenetre._bord_actif != "none":
         dx = event.x_root - fenetre._x_racine_init
         dy = event.y_root - fenetre._y_racine_init
-        w_min, h_min = 420, 400
+        w_min, h_min = 420, 360
         nw, nh = fenetre._w_init, fenetre._h_init
         nx, ny = fenetre._x_init, fenetre._y_init
         
-        _, utile_h = obtenir_espace_travail()
+        utile_h = fenetre.winfo_screenheight() - 60
         
         if "right" in fenetre._bord_actif: nw = max(w_min, fenetre._w_init + dx)
         if "left" in fenetre._bord_actif:
@@ -374,7 +368,8 @@ def verif_double_clic_bord(event):
     bord = evaluer_bord(event)
     if bord == "none": return
     
-    utile_w, utile_h = obtenir_espace_travail()
+    utile_w = fenetre.winfo_screenwidth()
+    utile_h = fenetre.winfo_screenheight() - 60
 
     if not h_maximisee and not w_maximisee:
         taille_origine["w"] = fenetre.winfo_width()
@@ -431,29 +426,51 @@ def verif_action_deplacement(event):
 barre_titre.bind("<Button-1>", verif_deplacement)
 barre_titre.bind("<B1-Motion>", verif_action_deplacement)
 
-try:
-    chemin_logo_unique = resource_path("Trancheur Unique logo.png")
-    if chemin_logo_unique:
-        img_brute = tk.PhotoImage(file=chemin_logo_unique)
-        facteur_x = max(1, img_brute.width() // 80)
-        facteur_y = max(1, img_brute.height() // 80)
-        img_ico_barre = img_brute.subsample(facteur_x, facteur_y)
-        label_ico = tk.Label(barre_titre, image=img_ico_barre, bg=COULEUR_BARRE)
-        label_ico.pack(side="left", padx=15)
-except:
-    pass
+# --- CHARGEMENT DES ICÔNES ---
+chemin_ico = resource_path("Trancheur Unique logo.ico")
+chemin_png = resource_path("Trancheur Unique logo.png")
 
-titre_logiciel = tk.Label(barre_titre, text="Trancheur Unique", fg="white", bg=COULEUR_BARRE, font=("Helvetica", 11, "bold"))
-titre_logiciel.pack(side="left", padx=5)
+if chemin_ico and os.path.exists(chemin_ico):
+    try:
+        fenetre.iconbitmap(chemin_ico)
+        # Écrit l'icône dans la zone utilisateur du registre pour les .3mf
+        associer_icone_extension_3mf(chemin_ico)
+    except Exception as e:
+        print("Erreur iconbitmap :", e)
+
+logo_affiche = False
+if chemin_png and os.path.exists(chemin_png):
+    try:
+        img_icone_app = tk.PhotoImage(file=chemin_png)
+        facteur_x = max(1, img_icone_app.width() // 70)
+        facteur_y = max(1, img_icone_app.height() // 60)
+        img_ico_barre = img_icone_app.subsample(facteur_x, facteur_y)
+        
+        label_ico = tk.Label(barre_titre, image=img_ico_barre, bg=COULEUR_BARRE)
+        label_ico.image = img_ico_barre  
+        label_ico.pack(side="left", padx=10)
+        label_ico.bind("<Button-1>", verif_deplacement)
+        label_ico.bind("<B1-Motion>", verif_action_deplacement)
+        logo_affiche = True
+    except Exception as e:
+        print("Erreur d'affichage du logo PNG :", e)
+
+if not logo_affiche:
+    lbl_alt_logo = tk.Label(barre_titre, text="", font=("Helvetica", 12), bg=COULEUR_BARRE, fg="#00a2ed")
+    lbl_alt_logo.pack(side="left", padx=10)
+
+titre_logiciel = tk.Label(barre_titre, text="Trancheur Unique", fg="white", bg=COULEUR_BARRE, font=("Helvetica", 10, "bold"))
+titre_logiciel.pack(side="left", padx=2)
 titre_logiciel.bind("<Button-1>", verif_deplacement)
 titre_logiciel.bind("<B1-Motion>", verif_action_deplacement)
 
-btn_fermer = tk.Button(barre_titre, text="✕", fg="white", bg=COULEUR_BARRE, activebackground="#e81123", activeforeground="white", bd=0, font=("Helvetica", 14, "bold"), width=4, height=3, command=fenetre.destroy)
+btn_fermer = tk.Button(barre_titre, text="✕", fg="white", bg=COULEUR_BARRE, activebackground="#e81123", activeforeground="white", bd=0, font=("Helvetica", 11, "bold"), width=4, height=2, command=fenetre.destroy)
 btn_fermer.pack(side="right")
 
 def basculer_agrandissement(event=None):
     global h_maximisee, w_maximisee, taille_origine
-    utile_w, utile_h = obtenir_espace_travail()
+    utile_w = fenetre.winfo_screenwidth()
+    utile_h = fenetre.winfo_screenheight() - 60
     if not (h_maximisee and w_maximisee):
         if not h_maximisee and not w_maximisee:
             taille_origine = {"w": fenetre.winfo_width(), "h": fenetre.winfo_height(), "x": fenetre.winfo_x(), "y": fenetre.winfo_y()}
@@ -468,21 +485,58 @@ def basculer_agrandissement(event=None):
 barre_titre.bind("<Double-Button-1>", basculer_agrandissement)
 titre_logiciel.bind("<Double-Button-1>", basculer_agrandissement)
 
-btn_agrandir = tk.Button(barre_titre, text="⬜", fg="white", bg=COULEUR_BARRE, activebackground="#163e65", activeforeground="white", bd=0, font=("Helvetica", 10), width=4, height=3, command=basculer_agrandissement)
+btn_agrandir = tk.Button(barre_titre, text="⬜", fg="white", bg=COULEUR_BARRE, activebackground="#163e65", activeforeground="white", bd=0, font=("Helvetica", 9), width=4, height=2, command=basculer_agrandissement)
 btn_agrandir.pack(side="right")
 
-btn_reduire = tk.Button(barre_titre, text="—", fg="white", bg=COULEUR_BARRE, activebackground="#163e65", activeforeground="white", bd=0, font=("Helvetica", 12, "bold"), width=4, height=3, command=lambda: fenetre.state('iconic'))
+btn_reduire = tk.Button(barre_titre, text="—", fg="white", bg=COULEUR_BARRE, activebackground="#163e65", activeforeground="white", bd=0, font=("Helvetica", 10, "bold"), width=4, height=2, command=reduire_fenetre)
 btn_reduire.pack(side="right")
 
 # --- CONTENU PRINCIPAL ---
 label = ttk.Label(fenetre, text="Quel Slicer pour ce projet ?", font=("Helvetica", 12, "bold"))
-label.pack(pady=15)
+label.pack(pady=(4, 0))
 
-label_fichier = ttk.Label(fenetre, text=os.path.basename(fichier_3d), font=("Helvetica", 9, "italic"))
-label_fichier.pack(pady=2)
+frame_selection = tk.Frame(fenetre, bg=fenetre.cget("bg"))
+frame_selection.pack(pady=0)
 
-frame_contenu_boutons = ttk.Frame(fenetre)
-frame_contenu_boutons.pack(pady=5, fill="both", expand=True)
+def action_parcourir_3d():
+    global fichier_3d
+    fichier = filedialog.askopenfilename(
+        title="Sélectionner un fichier 3D", 
+        filetypes=[("Fichiers 3D", "*.stl *.3mf *.obj *.step *.stp"), ("Tous les fichiers", "*.*")]
+    )
+    if fichier:
+        fichier_3d = os.path.normpath(fichier)
+        mettre_a_jour_affichage_fichier()
+
+btn_parcourir_3d = tk.Button(
+    frame_selection, 
+    text="📁",  # Remplacé ici par le dossier rempli
+    font=("Segoe UI Symbol", 22), 
+    fg="#ffcc00",       
+    bg=fenetre.cget("bg"), 
+    bd=0, 
+    relief="flat",
+    activebackground=fenetre.cget("bg"),
+    command=action_parcourir_3d,
+    cursor="hand2"
+)
+btn_parcourir_3d.grid(row=0, column=0, padx=(10, 5), pady=0)
+Tooltip(btn_parcourir_3d, "Parcourir un fichier 3D...")
+
+label_fichier = ttk.Label(frame_selection, font=("Helvetica", 9, "italic"))
+label_fichier.grid(row=0, column=1, sticky="w", pady=0) 
+
+def mettre_a_jour_affichage_fichier():
+    global fichier_3d
+    if fichier_3d:
+        label_fichier.config(text=os.path.basename(fichier_3d), font=("Helvetica", 9, "bold"), foreground="black")
+    else:
+        label_fichier.config(text="Parcourir un fichier 3D", font=("Helvetica", 10, "italic"), foreground="gray")
+
+mettre_a_jour_affichage_fichier()
+
+frame_contenu_boutons = tk.Frame(fenetre, bg="white")
+frame_contenu_boutons.pack(pady=4, fill="both", expand=True)
 
 images_stockage = []
 
@@ -492,65 +546,50 @@ def rafraichir_boutons():
         widget.destroy()
     images_stockage.clear()
     
-    boutons_crees = 0
     liste_complete = charger_slicers_personnalises()
+    liste_valide = [cfg for cfg in liste_complete if os.path.exists(cfg["chemin"])]
+    
+    if not liste_valide:
+        lbl = ttk.Label(frame_contenu_boutons, text="⚠️ Aucun Slicer enregistré...", foreground="orange", background="white")
+        lbl.pack(pady=20)
+        return
 
-    for config in liste_complete:
+    lignes_par_colonne = 4
+    nb_colonnes = ((len(liste_valide) - 1) // lignes_par_colonne) + 1
+
+    for index, config in enumerate(liste_valide):
         chemin = config["chemin"]
         nom_logiciel = config["nom"]
-        if os.path.exists(chemin):
-            row_frame = tk.Frame(frame_contenu_boutons, bg="white")
-            row_frame.pack(pady=10, padx=40)
-            
-            container_bouton = tk.Frame(row_frame, bg="white")
-            container_bouton.pack(side="left", padx=10)
-            container_bouton.grid_rowconfigure(0, weight=1)
-            container_bouton.grid_columnconfigure(0, weight=1)
+        
+        col = index // lignes_par_colonne
+        lig = index % lignes_par_colonne
+        
+        row_frame = tk.Frame(frame_contenu_boutons, bg="white")
+        
+        if nb_colonnes == 1:
+            row_frame.pack(pady=8, padx=40)
+        else:
+            row_frame.grid(row=lig, column=col, padx=20, pady=8, sticky="nsew")
+        
+        container_bouton = tk.Frame(row_frame, bg="white")
+        container_bouton.pack(side="left", padx=10)
+        container_bouton.grid_rowconfigure(0, weight=1)
+        container_bouton.grid_columnconfigure(0, weight=1)
 
-            btn = tk.Button(container_bouton, command=lambda c=chemin, n=nom_logiciel: lancer_slicer(c, n), 
-                            bg="white", bd=0, relief="flat")
-            
-            # --- INFO-BULLE ASSOCIÉE AU BOUTON DU SLICER ---
-            Tooltip(btn, nom_logiciel)
-            
-            if config["image_nom"] and config["image_nom"] != "None":
-                try:
-                    img_path = config["image_nom"]
-                    if img_path and os.path.exists(img_path):
-                        img = tk.PhotoImage(file=img_path)
-                        images_stockage.append(img)
-                        btn.config(image=img)
-                except Exception as e:
-                    print(f"Erreur image: {e}")
-            
-            btn.grid(row=0, column=0, sticky="nsew")
-            
-            # Bouton de modification (Engrenage)
-            btn_modif = tk.Button(container_bouton, text="⚙️", fg="gray", bg="white", bd=0,
-                                 font=("Helvetica", 11), activebackground="white", activeforeground="black",
-                                 command=lambda c=config: ouvrir_fenetre_ajout(slicer_a_modifier=c))
-            btn_modif.grid(row=0, column=0, sticky="nw", padx=5, pady=5)
-            
-            # Bouton de suppression (Croix)
-            btn_suppr = tk.Button(container_bouton, text="✕", fg="red", bg="white", bd=0, 
-                                 font=("Helvetica", 14, "bold"), activebackground="white", activeforeground="darkred",
-                                 command=lambda n=nom_logiciel: supprimer_slicer_personnalise(n))
-            btn_suppr.grid(row=0, column=0, sticky="ne", padx=5, pady=5)
-            
-            boutons_crees += 1
-            
-    if boutons_crees == 0:
-        lbl = ttk.Label(frame_contenu_boutons, text="⚠️ Aucun Slicer enregistré...", foreground="orange")
-        lbl.pack(pady=30)
-
-    fenetre.update_idletasks()
-    largeur_cible = 480
-    hauteur_cible = max(500, 90 + 60 + frame_contenu_boutons.winfo_reqheight() + 85)
-    
-    if not h_maximisee and not w_maximisee:
-        utile_w, utile_h = obtenir_espace_travail()
-        if hauteur_cible > utile_h: hauteur_cible = utile_h - 40
-        fenetre.geometry(f"{largeur_cible}x{hauteur_cible}+{(utile_w // 2) - (largeur_cible // 2)}+{(utile_h // 2) - (hauteur_cible // 2)}")
+        btn = tk.Button(container_bouton, command=lambda c=chemin, n=nom_logiciel: lancer_slicer(c, n), bg="white", bd=0, relief="flat")
+        Tooltip(btn, nom_logiciel)
+        if config["image_nom"] and config["image_nom"] != "None" and os.path.exists(config["image_nom"]):
+            try:
+                img = tk.PhotoImage(file=config["image_nom"])
+                images_stockage.append(img)
+                btn.config(image=img)
+            except: pass
+        btn.grid(row=0, column=0, sticky="nsew")
+        
+        btn_modif = tk.Button(container_bouton, text="⚙️", fg="gray", bg="white", bd=0, font=("Helvetica", 10), command=lambda c=config: ouvrir_fenetre_ajout(slicer_a_modifier=c))
+        btn_modif.grid(row=0, column=0, sticky="nw", padx=3, pady=3)
+        btn_suppr = tk.Button(container_bouton, text="✕", fg="red", bg="white", bd=0, font=("Helvetica", 12, "bold"), command=lambda n=nom_logiciel: supprimer_slicer_personnalise(n))
+        btn_suppr.grid(row=0, column=0, sticky="ne", padx=3, pady=3)
 
 # --- DIALOGUE D'AJOUT ET DE MODIFICATION ---
 def ouvrir_fenetre_ajout(slicer_a_modifier=None):
@@ -559,7 +598,6 @@ def ouvrir_fenetre_ajout(slicer_a_modifier=None):
     fenetre_ajout.transient(fenetre) 
     fenetre_ajout.grab_set()         
     
-    # Adaptation du titre et géométrie selon le mode (Ajout ou Edition)
     mode_edition = slicer_a_modifier is not None
     if mode_edition:
         fenetre_ajout.title("Modifier le Slicer")
@@ -567,7 +605,7 @@ def ouvrir_fenetre_ajout(slicer_a_modifier=None):
         fenetre_ajout.title("Ajouter un Trancheur")
         
     fenetre_ajout.geometry("420x260")
-    fenetre_ajout.geometry(f"+{fenetre.winfo_x() + (fenetre.winfo_width() // 2) - 210}+{fenetre.winfo_y() + (fenetre.winfo_height() // 2) - 165}")
+    fenetre_ajout.geometry(f"+{fenetre.winfo_x() + (fenetre.winfo_width() // 2) - 210}+{fenetre.winfo_y() + (fenetre.winfo_height() // 2) - 130}")
     
     ttk.Label(fenetre_ajout, text="Nom du trancheur :", font=("Helvetica", 10, "bold")).pack(pady=(12, 2), padx=20, anchor="w")
     entry_nom = ttk.Entry(fenetre_ajout, width=34)
@@ -617,13 +655,24 @@ def ouvrir_fenetre_ajout(slicer_a_modifier=None):
             messagebox.showerror("Fichier introuvable", "L'icône spécifiée n'existe pas.", parent=fenetre_ajout)
             return
             
+        chemin_normalise = os.path.normpath(chemin).lower()
+        liste_existante = charger_slicers_personnalises()
+        
+        for s in liste_existante:
+            if mode_edition and s["nom"] == slicer_a_modifier["nom"]:
+                continue
+            if os.path.normpath(s["chemin"]).lower() == chemin_normalise:
+                messagebox.showwarning(
+                    "Doublon détecté", 
+                    f"Cet exécutable est déjà associé au trancheur '{s['nom']}'.\nIl ne peut pas être ajouté une seconde fois.", 
+                    parent=fenetre_ajout
+                )
+                return
+
         valeur_icone = icone if icone else None
 
         if mode_edition:
-            # Mode modification : on met à jour l'élément dans la liste globale
-            liste_existante = charger_slicers_personnalises()
             for s in liste_existante:
-                # On cible le trancheur par son ancien nom d'origine
                 if s["nom"] == slicer_a_modifier["nom"]:
                     s["nom"] = nom
                     s["chemin"] = chemin
@@ -631,21 +680,44 @@ def ouvrir_fenetre_ajout(slicer_a_modifier=None):
                     break
             if réécrire_tous_slicers(liste_existante):
                 rafraichir_boutons()
+                redimensionner_et_centrer()
                 fenetre_ajout.destroy()
         else:
-            # Mode ajout simple classique
             if sauvegarder_slicer_personnalise(nom, chemin, valeur_icone):
                 rafraichir_boutons()
+                redimensionner_et_centrer()
                 fenetre_ajout.destroy()
             
     texte_bouton = "Appliquer les modifications" if mode_edition else "Ajouter le logiciel"
     ttk.Button(fenetre_ajout, text=texte_bouton, command=valider_action).pack(pady=22)
 
 frame_actions_basse = ttk.Frame(fenetre)
-frame_actions_basse.pack(side="bottom", fill="x", pady=12, padx=15)
+frame_actions_basse.pack(side="bottom", fill="x", pady=10, padx=15)
 ttk.Button(frame_actions_basse, text="➕ Ajouter un Slicer", command=ouvrir_fenetre_ajout).pack(side="left", padx=5)
 
-# Premier calcul et lancement
+
+# --- FONCTION DE CALCUL ET DE CENTRAGE GARANTI ---
+def redimensionner_et_centrer():
+    global taille_origine
+    fenetre.update_idletasks()
+    
+    largeur_cible = max(480, fenetre.winfo_reqwidth() + 40)
+    hauteur_cible = max(460, fenetre.winfo_reqheight())
+    
+    utile_w = fenetre.winfo_screenwidth()
+    utile_h = fenetre.winfo_screenheight() - 60
+    
+    pos_x = (utile_w // 2) - (largeur_cible // 2)
+    pos_y = (utile_h // 2) - (hauteur_cible // 2)
+    
+    taille_origine = {"w": largeur_cible, "h": hauteur_cible, "x": pos_x, "y": pos_y}
+    
+    if not h_maximisee and not w_maximisee:
+        fenetre.geometry(f"{largeur_cible}x{hauteur_cible}+{pos_x}+{pos_y}")
+
+
+# --- LANCEMENT DE L'APPLICATION ---
 rafraichir_boutons()
-fenetre.after(100, forcer_barre_taches)
+redimensionner_et_centrer()
+
 fenetre.mainloop()
